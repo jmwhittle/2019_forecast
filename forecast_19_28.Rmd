@@ -1,0 +1,19 @@
+---
+title: "forecast_19_28"
+author: "Jason Whittle"
+date: "12/4/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse); theme_set(theme_bw())
+```
+
+# Forecast
+The annual enrollment ten year forecast update. Goals for this year:
+- Create shiny app to deciminate demographically based information to college.
+- Use broom to stream line data manipulaiton.
+- Utilize more than the MA model developed last year. 
+
+
