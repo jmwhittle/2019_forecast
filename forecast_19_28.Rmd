@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(tidyverse); theme_set(theme_bw())
+library(tidyverse); theme_set(theme_minimal())
 ```
 
 # Forecast
@@ -16,4 +16,28 @@ The annual enrollment ten year forecast update. Goals for this year:
 - Use broom to stream line data manipulaiton.
 - Utilize more than the MA model developed last year. 
 
+
+```{r}
+data <- read_csv("Budget_Related_Enrollments_20180104.csv")
+data$br_credits <- data$BUDGET_RELATED_CREDIT
+data$sem <- substr(data$TERM_CODE, 5, 6)
+```
+
+```{r}
+data %>% group_by(GENDER, ETHNICITY, AGE) %>% tally() %>% ggplot() + geom_line(aes(x=AGE, y = n, col = GENDER)) + facet_wrap(~ETHNICITY, scales = "free")
+
+data %>% filter(sem == 40) %>% 
+  group_by(GENDER, ETHNICITY, AGE, TERM_CODE) %>% 
+  tally() %>% 
+  ggplot() +
+  geom_point(aes(x = TERM_CODE, y = n, col =GENDER)) + 
+  facet_wrap(~ETHNICITY, scales = "free") +
+  guides(col = "none")
+
+data %>% filter(sem == 40) %>% group_by(TERM_CODE) %>% tally() %>% ggplot() + geom_point(aes(x=substr(TERM_CODE, 1, 4), y = n))
+
+# deb S. validation
+# deb15 <- data %>% filter(TERM_CODE == 201540) 
+# write_csv(deb15, "deb15.csv")
+```
 
