@@ -18,13 +18,25 @@ The annual enrollment ten year forecast update. Goals for this year:
 
 
 ```{r}
-data <- read_csv("Budget_Related_Enrollments_20180104.csv")
-data$br_credits <- data$BUDGET_RELATED_CREDIT
-data$sem <- substr(data$TERM_CODE, 5, 6)
+# budget_related_enrollments_20180105
+data <- read_csv("export_20180125.csv")
+# data$br_credits <- data$BUDGET_RELATED_CREDIT
+data <- read.table("TASK0018010_20180116.txt", header = T, sep = "|")
+data$sem <- substr(data$TERM, 5, 6)
 ```
 
 ```{r}
-data %>% group_by(GENDER, ETHNICITY, AGE) %>% tally() %>% ggplot() + geom_line(aes(x=AGE, y = n, col = GENDER)) + facet_wrap(~ETHNICITY, scales = "free")
+data %>% group_by(S_GENDER, S_ETHNICITY, S_AGE) %>% tally()
+```
+
+
+```{r}
+# end of term numbers
+data %>% group_by(S_GENDER, S_ETHNICITY, S_AGE) %>%
+  tally() %>%
+  ggplot() + 
+  geom_line(aes(x=S_AGE, y = n, col = S_GENDER)) + 
+  facet_wrap(~S_ETHNICITY, scales = "free")
 
 data %>% filter(sem == 40) %>% 
   group_by(GENDER, ETHNICITY, AGE, TERM_CODE) %>% 
@@ -36,8 +48,244 @@ data %>% filter(sem == 40) %>%
 
 data %>% filter(sem == 40) %>% group_by(TERM_CODE) %>% tally() %>% ggplot() + geom_point(aes(x=substr(TERM_CODE, 1, 4), y = n))
 
+data %>% filter(sem == 40) %>% 
+  group_by(TERM_CODE) %>% 
+  filter(TERM_CODE > 201340 | TERM_CODE < 200940) %>% 
+  tally() %>% 
+  ggplot() + 
+  geom_point(aes(x=as.numeric(substr(TERM_CODE, 1, 4)), y = n)) + 
+  geom_smooth(aes(x = as.numeric(substr(TERM_CODE, 1, 4)), y = n), method = "lm")
+
+blah <- data %>% filter(sem == 40) %>% 
+  group_by(TERM_CODE) %>% 
+  filter(TERM_CODE > 201340 | TERM_CODE < 200940) %>% 
+  tally() 
+
+blah$year <- as.numeric(substr(blah$TERM_CODE, 1, 4))
+
+lm(blah$year~blah$n)
+
 # deb S. validation
-# deb15 <- data %>% filter(TERM_CODE == 201540) 
-# write_csv(deb15, "deb15.csv")
+deb14 <- data %>% filter(TERM == 201440)
+deb15 <- data %>% filter(TERM == 201540)
+deb16 <- data %>% filter(TERM == 201640)
+deb17 <- data %>% filter(TERM == 201740)
+write_csv(deb15, "deb15.csv")
+```
+
+
+```{r}
+# third week numbers
+data_3 <- read.table("TASK00180103rd.txt", sep = "|", header = T)
+data_3$sem <- as.numeric(substr(data_3$TERM, 5, 6))
+data_3$year <- as.numeric(substr(data_3$TERM, 1, 4))
+data_3$tri <- ifelse(data_3$sem == 30, paste(data_3$year, "1", sep = "-"), 
+                       ifelse(data_3$sem == 40, paste(data_3$year, "2", sep = "-"),
+                              paste((data_3$year - 1), "3", sep = "-")))
+
+
+data_3$eth <- ifelse(data_3$S_ETHNICITY == "N", "oth", 
+                       ifelse(data_3$S_ETHNICITY == "M", "oth",
+                              ifelse(data_3$S_ETHNICITY == "", "oth",
+                                     ifelse(data_3$S_ETHNICITY == "I", "oth",
+                                            ifelse(data_3$S_ETHNICITY == "U", "oth", as.character(data_3$S_ETHNICITY))))))
+
+data_3$gen <- ifelse(data_3$S_GENDER == "-", "oth", 
+                     ifelse(data_3$S_GENDER == "0", "oth", 
+                            ifelse(data_3$S_GENDER == "N", "oth",
+                                   ifelse(data_3$S_GENDER == "U", "oth",
+                                          ifelse(data_3$S_GENDER == "", "oth",
+                                          as.character(data_3$S_GENDER))))))
+data_3$zip5 <- substr(data_3$S_CURR_ZIP, 1,5)
+
+# shows white decline and HLL rising but still overall loss
+data_3 %>% group_by(tri, eth, gen) %>% tally() %>% ggplot() + geom_point(aes(x = tri, y = n, col = gen)) + facet_wrap(~eth)
+
+data_3 %>% group_by(year, zip5) %>% tally() %>% filter(n > 50) %>% ggplot() + geom_line(aes(x = year, y =  n, col = zip5), stat = "identity")
+
+```
+
+```{r}
+data <- read_csv("export_20180125.csv")
+
+data$sem <- as.numeric(substr(data$TERM, 5, 6))
+data$year <- as.numeric(substr(data$TERM, 1, 4))
+data$zip5 <- substr(data$S_CURR_ZIP, 1, 5)
+
+data$tri <- ifelse(data$sem == 30, paste(data$year, "1", sep = "-"), 
+                       ifelse(data$sem == 40, paste(data$year, "2", sep = "-"),
+                              paste((data$year - 1), "3", sep = "-")))
+```
+
+```{r}
+# ethnic/racial groups. Easier to read than the ifelse string of commands but probably slower
+# data govenance issue... supposed to ignore the U... why have it in the data then?
+data$S_ETHNICITY[data$S_ETHNICITY == "AU"] <- "A"
+data$S_ETHNICITY[data$S_ETHNICITY == "BU"] <-"B"
+data$S_ETHNICITY[data$S_ETHNICITY == "WU"] <- "W"
+data$S_ETHNICITY[data$S_ETHNICITY == "HU"] <- "H"
+data$S_ETHNICITY[data$S_ETHNICITY == "PU"] <- "P"
+data$S_ETHNICITY[data$S_ETHNICITY == "MU"] <- "M"
+data$S_ETHNICITY[data$S_ETHNICITY == "NU"] <- "N"
+data$S_ETHNICITY[data$S_ETHNICITY == "IU"] <- "I"
+
+data$eth <- data$S_ETHNICITY
+
+# any thing with an "N" in the ethnicity is just and N
+data$eth[data$S_ETHNICITY == "N" | 
+           data$S_ETHNICITY == "M" | 
+           data$S_ETHNICITY == "I" | 
+           data$S_ETHNICITY == "" | 
+           data$S_ETHNICITY == "U" | 
+           data$S_ETHNICITY ==  "ANU" | 
+           data$S_ETHNICITY == "BNU" | 
+           data$S_ETHNICITY == "HNU" | 
+           data$S_ETHNICITY == "WNU" | 
+           data$S_ETHNICITY == "INU" |
+           data$S_ETHNICITY == "MNU" |
+           data$S_ETHNICITY == "PNU" |
+           is.na(data$S_ETHNICITY) == T] <- "other"
+
+
+
+# gender groupings
+data$gen <- ifelse(data$S_GENDER == "-", "oth", 
+                     ifelse(data$S_GENDER == "0", "oth", 
+                            ifelse(data$S_GENDER == "N", "oth",
+                                   ifelse(data$S_GENDER == "U", "oth",
+                                          ifelse(data$S_GENDER == "", "oth",
+                                          as.character(data$S_GENDER))))))
+
+# age groups
+data$age_bins <- ifelse(
+                      data$S_AGE < 17, "under 17",
+                        ifelse(
+                          data$S_AGE > 49, "over 49",
+                               ifelse(
+                                 data$S_AGE > 34 & data$S_AGE < 50, "35_49", 
+                                 data$S_AGE)))
+```
+
+```{r}
+data_tally <- data %>% filter(sem != 60) %>%
+  group_by(eth, gen, age_bins, tri) %>%
+  tally 
+  
+
+```
+
+
+```{r, eval=FALSE}
+data %>% filter(S_ETHNICITY == "I") %>% group_by(TERM) %>% tally() %>% ggplot() + 
+  geom_line(aes(x= TERM, y = n)) + 
+  geom_smooth(aes(x = TERM, y = n))
+
+data %>% group_by(gen, eth, S_AGE, TERM) %>% tally() %>% View()
+
+data %>% filter(eth != "ANU" & eth != "AU" & eth != "BNU" & eth != "BU" & eth != "WU") %>% 
+  group_by(gen, eth, S_AGE) %>% 
+  tally() %>%
+  ggplot() + 
+  geom_line(aes(x = S_AGE, y = n, col = gen)) + 
+  facet_wrap(~eth, scale = "free_y")
+
+data %>% filter(is.na(eth) == T) %>% group_by(gen, S_AGE, TERM) %>% tally() %>% summarise(sum_n = sum(n))
+
+data %>% group_by(gen, S_AGE, TERM) %>% tally() %>% summarise(sum_n = sum(n)) %>% ggplot() + geom_line(aes(x=S_AGE, y = sum_n, col = gen))
+```
+```{r}
+# count by sub groups
+grouped_data <- data %>% filter(sem != 60) %>% group_by(tri, age_bins, eth, gen) %>% tally()
+
+# temporary subgroups for inspection
+white <- grouped_data %>% filter(eth == "W") 
+black <- grouped_data %>% filter(eth == "B")
+hisp <- grouped_data %>% filter(eth == "H")
+asian <- grouped_data %>% filter(eth == "A")
+pacis <- grouped_data %>% filter(eth == "P")
+other <- grouped_data %>% filter(eth == "oth")
+
+
+white_ts <- ts(white[,-1], frequency = 3)
+white_ts %>% ggplot() + geom_line(aes(x=tri, y = n), stat = "identity")
+
+```
+
+First I need to filter out all the smaller subgroups and aggregate them.
+- automate this.
+- or could make the weights different depending on the group size.
+
+I want to apply decompose to all subgroups automatically. 
+- what apply function do I use?
+- sweeper package?
+
+Then apply basic forecast to all the subgroups
+
+```{r}
+# crude forecast
+library(forecast)
+data %>% filter(sem != 60) %>% group_by(TERM) %>% tally()
+
+raw_ts <- data %>% filter(sem != 60) %>% group_by(tri) %>% tally()
+
+# transforms data into S3 time series object. 
+tsts <- ts(raw_ts[,-1], frequency = 3)
+
+decompose(tsts)
+plot(decompose(tsts), col = "#00abe1")
+
+# uses a moving average model to pull out average seasonal trend. 
+decom_ts <- decompose(tsts)
+
+plot(decom_ts$trend, col = "#00abe1")
+
+#
+test <- arima(decom_ts$trend)
+
+# Exponential smoothing model ets is the default model when season length is less than 13. 
+trend_forecast <- forecast(decom_ts$trend[2:44])
+
+# summary of random elements
+
+season <- c(3995, -8844, 4848) # first value in trend_forecast is 201720
+
+trend_forecast$mean + season
+
+plot(decom_ts$x)
+
+plot(trend_forecast)
+
+```
+
+```{r}
+# add up trend, season and random to find what term corresponds to observation 44. 
+# then step forward. First couple of observations will be "controll" since we have the actual data for them.
+# looking at the time series plots it appears that the first and last value in the trend is a spring semester. 
+
+
+# find out FTE in fall, spring and summer for the last three financial years
+
+# mean
+mean_for <- trend_forecast$mean + season
+
+# lo
+lo80_for <- trend_forecast$lower[,1] + season
+
+# hi
+hi80_for <- trend_forecast$upper[,1] + season
+
+# FTE predicitons based on 201720, 201730, 201740
+fte_multi <- c(0.57, 0.41, 0.58)
+
+mean_fte <- mean_for * fte_multi
+
+#terms
+terms <- c(201720, 201730, 201740, 201820, 201830, 201840, 201920, 201930, 201940, 202020)
+forecast_tbl <- cbind(terms, round(mean_for), round(mean_fte), round(lo80_for), round(hi80_for))
+write_csv(as.data.frame(forecast_tbl),"forecast_ad_hoc.csv" )
+```
+
+```{r}
+knitr::kable(forecast_tbl, col.names = c("Term", "Forecast", "FTE", "Lo 80", "Hi80"))
 ```
 
