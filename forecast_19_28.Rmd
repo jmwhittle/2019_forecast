@@ -5,7 +5,47 @@ date: "12/4/2017"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
+```{sql, eval= FALSE, include = FALSE, echo=FALSE}
+<!-- Rochelle updated SQL to reflect the new data warehouse tables -->
+select distinct a.pidm
+        ,b.term_code
+        ,a.s_gender
+        ,a.s_ethnicity
+        ,a.s_age
+        ,a.s_curr_zip
+        ,sum(b.sc_att_cr)/10 as ATTEMPTED_CREDITS
+from wsrpmgr.bus_re_ushe_students            A
+left join wsrpmgr.bus_re_ushe_student_courses B
+   on a.ushe_student_key = b.ushe_student_key
+left join wsrpmgr.bus_re_ushe_courses        C
+   on b.ushe_course_key = c.ushe_course_key
+where c.c_budget_code like 'B%'               --use only budget-related enrollments
+and a.term_code between '200240' and '201740' --restrict our analysis to these terms
+and c_credit_ind = 'C'                        --only include for-credit courses (and enrollments)
+and s_inst = '5220'                           --SLCC only (not SAT)
+and s_extract = 'E'                           --End of Term extracts
+group by a.pidm
+        ,b.term_code
+        ,a.s_gender
+        ,a.s_ethnicity
+        ,a.s_age
+        ,a.s_curr_zip
+;
+ 
+<!-- S_ethnicity = -->
+<!-- A =asian -->
+<!-- B = black -->
+<!-- H = hispanic -->
+<!-- I =American indian, alaska native -->
+<!-- M = multiple -->
+<!-- N = non-resident alien -->
+<!-- P = pacific islander/native hawaiian -->
+<!-- U =unknown/unreported -->
+<!-- W = white -->
+```
+
+
+```{r setup, include=FALSE, echo=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse); theme_set(theme_minimal())
 ```
@@ -16,96 +56,39 @@ The annual enrollment ten year forecast update. Goals for this year:
 - Use broom to stream line data manipulaiton.
 - Utilize more than the MA model developed last year. 
 
-
-```{r}
-# budget_related_enrollments_20180105
-data <- read_csv("export_20180125.csv")
-# data$br_credits <- data$BUDGET_RELATED_CREDIT
-data <- read.table("TASK0018010_20180116.txt", header = T, sep = "|")
-data$sem <- substr(data$TERM, 5, 6)
-```
-
-```{r}
-data %>% group_by(S_GENDER, S_ETHNICITY, S_AGE) %>% tally()
-```
-
-
-```{r}
-# end of term numbers
-data %>% group_by(S_GENDER, S_ETHNICITY, S_AGE) %>%
-  tally() %>%
-  ggplot() + 
-  geom_line(aes(x=S_AGE, y = n, col = S_GENDER)) + 
-  facet_wrap(~S_ETHNICITY, scales = "free")
-
-data %>% filter(sem == 40) %>% 
-  group_by(GENDER, ETHNICITY, AGE, TERM_CODE) %>% 
-  tally() %>% 
-  ggplot() +
-  geom_point(aes(x = TERM_CODE, y = n, col =GENDER)) + 
-  facet_wrap(~ETHNICITY, scales = "free") +
-  guides(col = "none")
-
-data %>% filter(sem == 40) %>% group_by(TERM_CODE) %>% tally() %>% ggplot() + geom_point(aes(x=substr(TERM_CODE, 1, 4), y = n))
-
-data %>% filter(sem == 40) %>% 
-  group_by(TERM_CODE) %>% 
-  filter(TERM_CODE > 201340 | TERM_CODE < 200940) %>% 
-  tally() %>% 
-  ggplot() + 
-  geom_point(aes(x=as.numeric(substr(TERM_CODE, 1, 4)), y = n)) + 
-  geom_smooth(aes(x = as.numeric(substr(TERM_CODE, 1, 4)), y = n), method = "lm")
-
-blah <- data %>% filter(sem == 40) %>% 
-  group_by(TERM_CODE) %>% 
-  filter(TERM_CODE > 201340 | TERM_CODE < 200940) %>% 
-  tally() 
-
-blah$year <- as.numeric(substr(blah$TERM_CODE, 1, 4))
-
-lm(blah$year~blah$n)
-
-# deb S. validation
-deb14 <- data %>% filter(TERM == 201440)
-deb15 <- data %>% filter(TERM == 201540)
-deb16 <- data %>% filter(TERM == 201640)
-deb17 <- data %>% filter(TERM == 201740)
-write_csv(deb15, "deb15.csv")
-```
-
-
-```{r}
+```{r, echo=FALSE}
+# whole section is obsolete
 # third week numbers
-data_3 <- read.table("TASK00180103rd.txt", sep = "|", header = T)
-data_3$sem <- as.numeric(substr(data_3$TERM, 5, 6))
-data_3$year <- as.numeric(substr(data_3$TERM, 1, 4))
-data_3$tri <- ifelse(data_3$sem == 30, paste(data_3$year, "1", sep = "-"), 
-                       ifelse(data_3$sem == 40, paste(data_3$year, "2", sep = "-"),
-                              paste((data_3$year - 1), "3", sep = "-")))
-
-
-data_3$eth <- ifelse(data_3$S_ETHNICITY == "N", "oth", 
-                       ifelse(data_3$S_ETHNICITY == "M", "oth",
-                              ifelse(data_3$S_ETHNICITY == "", "oth",
-                                     ifelse(data_3$S_ETHNICITY == "I", "oth",
-                                            ifelse(data_3$S_ETHNICITY == "U", "oth", as.character(data_3$S_ETHNICITY))))))
-
-data_3$gen <- ifelse(data_3$S_GENDER == "-", "oth", 
-                     ifelse(data_3$S_GENDER == "0", "oth", 
-                            ifelse(data_3$S_GENDER == "N", "oth",
-                                   ifelse(data_3$S_GENDER == "U", "oth",
-                                          ifelse(data_3$S_GENDER == "", "oth",
-                                          as.character(data_3$S_GENDER))))))
-data_3$zip5 <- substr(data_3$S_CURR_ZIP, 1,5)
-
-# shows white decline and HLL rising but still overall loss
-data_3 %>% group_by(tri, eth, gen) %>% tally() %>% ggplot() + geom_point(aes(x = tri, y = n, col = gen)) + facet_wrap(~eth)
-
-data_3 %>% group_by(year, zip5) %>% tally() %>% filter(n > 50) %>% ggplot() + geom_line(aes(x = year, y =  n, col = zip5), stat = "identity")
+# data_3 <- read.table("TASK00180103rd.txt", sep = "|", header = T)
+# data_3$sem <- as.numeric(substr(data_3$TERM, 5, 6))
+# data_3$year <- as.numeric(substr(data_3$TERM, 1, 4))
+# data_3$tri <- ifelse(data_3$sem == 30, paste(data_3$year, "1", sep = "-"), 
+#                        ifelse(data_3$sem == 40, paste(data_3$year, "2", sep = "-"),
+#                               paste((data_3$year - 1), "3", sep = "-")))
+# 
+# 
+# data_3$eth <- ifelse(data_3$S_ETHNICITY == "N", "oth", 
+#                        ifelse(data_3$S_ETHNICITY == "M", "oth",
+#                               ifelse(data_3$S_ETHNICITY == "", "oth",
+#                                      ifelse(data_3$S_ETHNICITY == "I", "oth",
+#                                             ifelse(data_3$S_ETHNICITY == "U", "oth", as.character(data_3$S_ETHNICITY))))))
+# 
+# data_3$gen <- ifelse(data_3$S_GENDER == "-", "oth", 
+#                      ifelse(data_3$S_GENDER == "0", "oth", 
+#                             ifelse(data_3$S_GENDER == "N", "oth",
+#                                    ifelse(data_3$S_GENDER == "U", "oth",
+#                                           ifelse(data_3$S_GENDER == "", "oth",
+#                                           as.character(data_3$S_GENDER))))))
+# data_3$zip5 <- substr(data_3$S_CURR_ZIP, 1,5)
+# 
+# # shows white decline and HLL rising but still overall loss
+# data_3 %>% group_by(tri, eth, gen) %>% tally() %>% ggplot() + geom_point(aes(x = tri, y = n, col = gen)) + facet_wrap(~eth)
+# 
+# data_3 %>% group_by(year, zip5) %>% tally() %>% filter(n > 50) %>% ggplot() + geom_line(aes(x = year, y =  n, col = zip5), stat = "identity")
 
 ```
 
-```{r}
+```{r, echo=FALSE, message=FALSE, cache=TRUE}
 data <- read_csv("export_20180125.csv")
 
 data$sem <- as.numeric(substr(data$TERM, 5, 6))
@@ -117,7 +100,7 @@ data$tri <- ifelse(data$sem == 30, paste(data$year, "1", sep = "-"),
                               paste((data$year - 1), "3", sep = "-")))
 ```
 
-```{r}
+```{r, echo=FALSE, cache=TRUE}
 # ethnic/racial groups. Easier to read than the ifelse string of commands but probably slower
 # data govenance issue... supposed to ignore the U... why have it in the data then?
 data$S_ETHNICITY[data$S_ETHNICITY == "AU"] <- "A"
@@ -131,6 +114,7 @@ data$S_ETHNICITY[data$S_ETHNICITY == "IU"] <- "I"
 
 data$eth <- data$S_ETHNICITY
 
+# consolidating groups more than last year: H, W and other
 # any thing with an "N" in the ethnicity is just and N
 data$eth[data$S_ETHNICITY == "N" | 
            data$S_ETHNICITY == "M" | 
@@ -144,6 +128,9 @@ data$eth[data$S_ETHNICITY == "N" |
            data$S_ETHNICITY == "INU" |
            data$S_ETHNICITY == "MNU" |
            data$S_ETHNICITY == "PNU" |
+           data$S_ETHNICITY == "A" | 
+           data$S_ETHNICITY == "P" | 
+           data$S_ETHNICITY == "B" | 
            is.na(data$S_ETHNICITY) == T] <- "other"
 
 
@@ -166,16 +153,188 @@ data$age_bins <- ifelse(
                                  data$S_AGE)))
 ```
 
-```{r}
+```{r, echo=FALSE, cache=TRUE}
+# creating the subgroup ts object
 data_tally <- data %>% filter(sem != 60) %>%
   group_by(eth, gen, age_bins, tri) %>%
   tally 
-  
+
+data_tally$id <- paste(data_tally$eth, data_tally$age_bins, data_tally$gen, sep = "")
+
+data_tally_wide <- data_tally %>%  ungroup %>% select(tri, id, n) %>% spread(id, n)
+
+data_tally_wide[is.na(data_tally_wide) == T] <- 0
+
+data_tally_ts <- ts(data_tally_wide[,-1], frequency = 3)
+```
+
+```{r, echo=FALSE, cache=TRUE, message=FALSE}
+ushe_hs_data <- read_csv("USHE_HS_enroll.csv")
+
+ushe_hs_data %>% gather("ethnicity", "ethn", 6:13) %>% 
+  group_by(s_inst, s_year, s_term, s_gender, s_county_origin, ethn) %>% filter(is.na(ethn) == F) %>%
+  tally() %>% 
+  summarise(white_slcc_share = (sum(n[s_inst == 5220 & ethn == "W"]/sum(n[ethn == "W"])))) %>% View()
+```
+
+
+## 18-24 year old variability
+
+There appears to be three different trends occuring at SLCC. The first is a clear and continuous rise in Hispanic/Latino/Latina (H) enrollment from 2002-2016. Hispanic males enrollments have increased by nearly 139\% and Hispanic female enrollments have increased by nearly 140\% during that time period.  The second is a stagnation in non-white and non-Hispanic enrollments for the same period. The third is a fairly stunning decline in White student enrollments. White male enrollments at SLCC have declined by nearly 33\% and White female enrollments have declined by approximately 21\% from 2002-2016. 
+
+```{r, echo=FALSE, cache=TRUE}
+# exploring 18 year old enrollment
+data %>% filter(age_bins == 18 | age_bins == 19 | 
+                  age_bins == 20 | age_bins == 21 | 
+                  age_bins == 22 | age_bins == 23 | 
+                  age_bins == 24) %>%
+  filter(sem == 40) %>%
+  filter(gen != "oth") %>%
+  group_by(eth, gen, year) %>%
+  tally() %>% 
+  ggplot() + 
+  geom_line(aes(x = year, y = n, col = gen), stat = "identity") + 
+  facet_wrap(~eth) +
+  geom_vline(xintercept = 2008, linetype = "dotted") + 
+  geom_vline(xintercept = 2010, linetype = "dotted") + 
+  labs(x = "year", 
+       y = "Number of students", 
+       title = "Traditional age variability by year/ethnicity (18-24)", 
+       caption = "Figure 1") + 
+  scale_color_manual(values = c("#00abe1", "#ffcd00"), 
+                     name = "", 
+                     labels = c("Female", "Male"))
+```
+
+## By age breakdowns for White, Hispanic/Latino/Latina and other ethnic groups for SLCC Fall enrollments
+
+### White
+
+The first two plots of this section are taking a closer look at White students by age at SLCC. Both plots present the same information but Figure 3 allows the y axis of the subplots to be adjusted based on the values of each subplot. Figure 2 clearly shows the downward trend in both White males and White females in the traditional age groups. With White female showing decline mostly between the ages of 18 and 21 while White males later 21-24 or 25. The sharp drop in White males in the 18 year old subplot is most likely brought about by the change in LDS mission age requirements. 
+
+There is stable enrollment for White males and females after the declining ages (21 for females and 25 for males). Given the age grouping done for this analysis the 35-49 year old bin demonstrates a continuted and strong usage of SLCC by non-traditional students, however we will see in Figure 3 that there is a much higher sensitivity of these groups to the buisness cycle.  
+
+
+```{r, echo=FALSE, cache=TRUE}
+data %>% 
+  filter(sem == 40) %>%
+  filter(eth == "W") %>%
+  filter(gen != "oth") %>%
+  group_by(gen, age_bins, year) %>%
+  tally() %>%
+  ggplot() + 
+  geom_line(aes(x = year, y = n, col = gen), stat = "identity") + 
+  facet_wrap(~age_bins) + 
+  geom_vline(xintercept = 2008, linetype = "dotted") + 
+  geom_vline(xintercept = 2010, linetype = "dotted") + 
+  labs(x = "Year", 
+       y = "Number of students", 
+       title = "White students by age group (y-axis fixed)", 
+       caption = "Figure 2") + 
+  scale_color_manual(values = c("#00abe1", "#ffcd00"), 
+                     name = "", 
+                     labels = c("Female", "Male"))
+```
+
+Allowing the y axis values to adjust based on the values of each individual subplot, as in Figure 3, allows one to see changes in specific age groups in relation to that specific age group. One can see in this figurte which age groups are more sensitive to the economic impact of the 2008 recession and the subsequent recovery. The vertical dotted lines at 2008 and 2010 are meant to provide a visual aid for the 2008 recession. Salt Lake County's unemployment level peaked in the third quarter of 2010 at 114,300 people actively looking for a job in the last 6 weeks (Source: St. Louis Federal Reserve FRED(UNEMPLOYUT)). The unemployment level does not count discouraged workers who have given up looking for a job and thus this peak might not represent the peak impact on SLCC enrollment but it should be fairly close. This would mean that age groups that are sensitive to the local labor market should see a rise between 2008 and 2010 and a decline sometime in or slightly after 2011. 
+
+From this we can see that White male enrollments around 25 years old start to become noticeably sensitive to labor market flucuations. This trend tends to amplify as age increases. These labor market enrollment effects are somewhat muted for White female until later than their male counterparts and do not clearly present themseleves until 27 years old. It is know that the 2008 recession disproportionately impacted males in the labor market so this muted impact on younger women is not suprising. Figure 3 allows one to see changes in specific age groups in relation to that specific age group. 
+
+Both Females and Males show a steep decline in both the 17 year old and under 17 year old subplots. This would point to a change in SLCC concurrent enrollment utilization by white students. I am unaware of policy changes that might explain these drops.
+
+```{r, echo=FALSE, cache=TRUE}
+data %>% 
+  filter(sem == 40) %>%
+  filter(eth == "W") %>%
+  filter(gen != "oth") %>%
+  group_by(gen, age_bins, year) %>%
+  tally() %>%
+  ggplot() + 
+  geom_line(aes(x = year, y = n, col = gen), stat = "identity") + 
+  facet_wrap(~age_bins, scales = "free") + 
+  geom_vline(xintercept = 2008, linetype = "dotted") + 
+  geom_vline(xintercept = 2010, linetype = "dotted") + 
+  labs(x = "Year",
+       y = "Number of students", 
+       title = "White students by age group (y-axis free)", 
+       caption = "Figure 3") + 
+  scale_color_manual(values = c("#00abe1", "#ffcd00"), 
+                     name = "", 
+                     labels = c("Female", "Male"))
+```
+
+
+### Hispanic/Latino/Latina
+
+There are two things that stick out for SLCC's Hispanic/Latino/Latina (HLL) student population. The first is the seemingly insensitivity to the local labor market in both Figure 4 and the more sensitive Figure 5 there is strong growth in almost all age groups before, during and after then 2008-2010 weak labor market. The second thing that sticks out is the bulk of the growth seems to be focused on the traditional aged students (18-21). In order for the growth from figure 1  to continue for SLCC's HLL enrollments, efforts need to be made to reach out to older HLL Salt Lake County residents. 
+```{r, echo=FALSE, cache=TRUE}
+data %>% 
+  filter(sem == 40) %>%
+  filter(eth == "H") %>%
+  filter(gen != "oth") %>%
+  group_by(gen, age_bins, year) %>%
+  tally() %>%
+  ggplot() + 
+  geom_line(aes(x = year, y = n, col = gen), stat = "identity") + 
+  facet_wrap(~age_bins) + 
+  geom_vline(xintercept = 2008, linetype = "dotted") + 
+  geom_vline(xintercept = 2010, linetype = "dotted") + 
+  labs(x = "Number of Students",
+       y = "Year", 
+       title = "Hispanic/Latino/Latina students by age group (y-axis fixed)", 
+       caption = "Figure 4") + 
+  scale_color_manual(values = c("#00abe1", "#ffcd00"),
+                     name = "", 
+                     labels = c("Female", "Male"))
+```
+
+
+```{r, echo=FALSE, cache=TRUE}
+data %>% 
+  filter(sem == 40) %>%
+  filter(eth == "H") %>%
+  filter(gen != "oth") %>%
+  group_by(gen, age_bins, year) %>%
+  tally() %>%
+  ggplot() + 
+  geom_line(aes(x = year, y = n, col = gen), stat = "identity") + 
+  facet_wrap(~age_bins, scales = "free") + 
+  geom_vline(xintercept = 2008, linetype = "dotted") + 
+  geom_vline(xintercept = 2010, linetype = "dotted") + 
+  labs(x = "Number of Students",
+       y = "Year", 
+       title = "Hispanic/Latino/Latina students by age group (y-axis free)", 
+       caption = "Figure 5") + 
+  scale_color_manual(values = c("#00abe1", "#ffcd00"),
+                     name = "", 
+                     labels = c("Female", "Male"))
+```
+
+```{r, echo=FALSE, cache=TRUE}
+data %>% 
+  filter(sem == 40) %>%
+  filter(eth == "other") %>%
+  group_by(gen, age_bins, year) %>%
+  tally() %>%
+  ggplot() + 
+  geom_line(aes(x = year, y = n, col = gen), stat = "identity") + 
+  facet_wrap(~age_bins, scales = "free") + 
+  geom_vline(xintercept = 2008, linetype = "dotted") + 
+  geom_vline(xintercept = 2010, linetype = "dotted")
+```
+
+
+## unemployment/age interaction
+
+
+```{r, echo=FALSE}
+# 
 
 ```
 
 
-```{r, eval=FALSE}
+
+```{r, eval=FALSE, include=FALSE, echo=FALSE}
 data %>% filter(S_ETHNICITY == "I") %>% group_by(TERM) %>% tally() %>% ggplot() + 
   geom_line(aes(x= TERM, y = n)) + 
   geom_smooth(aes(x = TERM, y = n))
@@ -193,7 +352,8 @@ data %>% filter(is.na(eth) == T) %>% group_by(gen, S_AGE, TERM) %>% tally() %>% 
 
 data %>% group_by(gen, S_AGE, TERM) %>% tally() %>% summarise(sum_n = sum(n)) %>% ggplot() + geom_line(aes(x=S_AGE, y = sum_n, col = gen))
 ```
-```{r}
+
+```{r, eval=FALSE, include=FALSE, echo=FALSE}
 # count by sub groups
 grouped_data <- data %>% filter(sem != 60) %>% group_by(tri, age_bins, eth, gen) %>% tally()
 
@@ -221,7 +381,7 @@ I want to apply decompose to all subgroups automatically.
 
 Then apply basic forecast to all the subgroups
 
-```{r}
+```{r, eval=FALSE, include=FALSE, echo=FALSE}
 # crude forecast
 library(forecast)
 data %>% filter(sem != 60) %>% group_by(TERM) %>% tally()
@@ -257,7 +417,7 @@ plot(trend_forecast)
 
 ```
 
-```{r}
+```{r, eval=FALSE, include=FALSE, echo=FALSE}
 # add up trend, season and random to find what term corresponds to observation 44. 
 # then step forward. First couple of observations will be "controll" since we have the actual data for them.
 # looking at the time series plots it appears that the first and last value in the trend is a spring semester. 
@@ -285,7 +445,7 @@ forecast_tbl <- cbind(terms, round(mean_for), round(mean_fte), round(lo80_for), 
 write_csv(as.data.frame(forecast_tbl),"forecast_ad_hoc.csv" )
 ```
 
-```{r}
+```{r, eval=FALSE, include=FALSE, echo=FALSE}
 knitr::kable(forecast_tbl, col.names = c("Term", "Forecast", "FTE", "Lo 80", "Hi80"))
 ```
 
