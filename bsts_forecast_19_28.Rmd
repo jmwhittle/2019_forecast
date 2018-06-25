@@ -1,0 +1,338 @@
+---
+title: "BSTS forecast 2019-2028"
+author: "Jason Whittle"
+date: "4/4/2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE, warning=F}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{sql, eval= FALSE, include = FALSE, echo=FALSE}
+<!-- Rochelle updated SQL to reflect the new data warehouse tables -->
+<!-- updated again 3/2/2017 to reflect institution totals as per Joe Curtain's 2017 request -->
+select distinct a.pidm
+        ,b.term_code
+        ,a.s_gender
+        ,a.s_ethnicity
+        ,a.s_age
+        ,a.s_curr_zip
+        ,sum(b.sc_att_cr)/10 as ATTEMPTED_CREDITS
+from wsrpmgr.bus_re_ushe_students            A
+left join wsrpmgr.bus_re_ushe_student_courses B
+   on a.ushe_student_key = b.ushe_student_key
+left join wsrpmgr.bus_re_ushe_courses        C
+   on b.ushe_course_key = c.ushe_course_key
+where a.term_code between '200240' and '201740' --restrict our analysis to these terms
+and c_credit_ind = 'C'                        --only include for-credit courses (and enrollments)
+and s_inst = '5220'                           --SLCC only (not SAT)
+and s_extract = 'E'                           --End of Term extracts
+group by a.pidm
+        ,b.term_code
+        ,a.s_gender
+        ,a.s_ethnicity
+        ,a.s_age
+        ,a.s_curr_zip
+;
+ 
+<!-- S_ethnicity = -->
+<!-- A =asian -->
+<!-- B = black -->
+<!-- H = hispanic -->
+<!-- I =American indian, alaska native -->
+<!-- M = multiple -->
+<!-- N = non-resident alien -->
+<!-- P = pacific islander/native hawaiian -->
+<!-- U =unknown/unreported -->
+<!-- W = white -->
+```
+
+```{r, include=FALSE, echo=FALSE, message=F, warning=F}
+library(tidyverse); theme_set(theme_minimal())
+data <- read_csv("20180308.csv")
+
+data$sem <- as.numeric(substr(data$TERM_CODE, 5, 6))
+data$year <- as.numeric(substr(data$TERM_CODE, 1, 4))
+data$zip5 <- substr(data$S_CURR_ZIP, 1, 5)
+data <- data %>% filter(sem != 60)
+
+data$tri <- ifelse(data$sem == 30, paste(data$year, "1", sep = "-"), 
+                       ifelse(data$sem == 40, paste(data$year, "2", sep = "-"),
+                              paste((data$year - 1), "3", sep = "-")))
+```
+
+```{r, echo=FALSE, message=F, warning=F}
+#full forecast ts sequence
+ts_seq <- as.data.frame(seq(2002, 2029, .33333333333333333))
+
+ts_seq$year <- substr(ts_seq$`seq(2002, 2029, 0.333333333333333)`, 1, 4)
+ts_seq$sem <- ifelse(substr(ts_seq$`seq(2002, 2029, 0.333333333333333)`, 6, 6) == "", 1,
+                      ifelse(substr(ts_seq$`seq(2002, 2029, 0.333333333333333)`, 6, 6) == "3", 2, 3))
+ts_seq$tri <- paste(ts_seq$year, ts_seq$sem, sep = "-")
+
+slc_pop_est <- read.csv("slc_pop_est.csv")
+
+slc_pop_est$tri <- paste(slc_pop_est$year, "-2", sep = "")
+
+var_y <- data %>% group_by(tri) %>%
+  tally() 
+
+var_data <- ts_seq %>% left_join(slc_pop_est, by = "tri") %>% left_join(var_y, by = "tri")
+var_data <- var_data[-1,] %>% dplyr::select(tri, n, slc_pop, slc_un)
+library(imputeTS)
+var_data$slc_pop <- na.interpolation(var_data$slc_pop, option = "linear")
+var_data$slc_un <- na.interpolation(var_data$slc_un, option = "linear")
+var_data$slc_pop <- log(var_data$slc_pop)
+var_data$slc_un <- log(var_data$slc_un)
+rm(var_y, ts_seq, slc_pop_est)
+```
+
+## BSTS vs ETS
+
+```{r, echo=FALSE}
+var_data[1:45,] %>% ggplot() + 
+  geom_point(aes(x = tri, y = n)) + 
+  ylim(5000, 40000) + 
+  labs(title = "Institution total enrollments", x = "Term", y = "Enrollments") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+
+BSTS or Bayesian Structural Time Series has many feature which are better situated for forecast the long run institutional enrollment of SLCC. For starters SLCC enrollment is very sensitive to spikes in unemployment, exponential smoothing models (ETS) cannot add additional regression elements into their modeling in a mathematically consistent manner (despite some people believing that it could). BSTS estimates probability distributions using MCMC, this allows elements to be added to one another. The ability to add time series elements additively allows the model to control for things like Salt Lake Counties population changes and an explicit assumption about economic growth all while not sacrificing the ease of use of an ETS. 
+
+BSTS allows for an explicit model of the term (seasonal effect) which does a much better job at modeling the term effect than the decompose, ETS the trend and then add back the decompose seasonal element method. 
+
+\newpage
+
+## Local linear trend only: Model 1.
+
+This model only uses a seasonal element layered on top of a random walk model. There are two short coming of this model. The first is that there is no consideration of Salt Lake Counties underlying population changes and the second is random walks have multiplicative errors. The multiplicative errors quickly lead to rather extreme and unrealistic error estimates for the models. While Model 1 seems to produce reasonable mean and median estimates the error bands are completely uninformative. 
+
+```{r, message=F, warning=F}
+library(bsts)
+# AddLocalLinearTrend
+ss1 <- AddLocalLinearTrend(list(), var_data$n[1:46])
+# seasonal
+ss1 <- AddSeasonal(ss1, var_data$n[1:46], nseasons = 3)
+# just seasonal and random walk
+model1 <- bsts(var_data$n[1:46],
+               state.specification = ss1, 
+               niter = 10000, 
+               set.seed(1983))
+```
+
+```{r, echo=F, message=F, warning=F}
+plot(model1, "components")
+```
+
+```{r, echo=F, message=F, warning=F}
+pred1 <- predict(model1, horizon = 35, burn = 100)
+bsts::plot.bsts.prediction(pred1, plot.original = 40, ylim = c(5000, 50000), main = "Model 1", ylab = "Institutional enrollment")
+```
+
+\newpage
+
+```{r, echo=F, message=F, warning=F, include = F}
+knitr::kable(cbind(var_data$tri[47:81], round(pred1$mean[1:35]), round(pred1$interval[1,1:35]), round(pred1$interval[2,1:35])), 
+             col.names = c("Term", "Mean", "2.5%", "97.5%"), 
+             caption = "Random walk with seasons model")
+```
+
+## Local linear trend with regression element: Model 2.
+
+Model adds a regression element to model 1. This doesn't deal with the problem of exploding error bands but it does allow for explicit control of the population in SL county and the unemployment rate in SL county. For forecasting the regression population projections from EMSI were used and an assumed 4% unemployment rate were used. 
+
+```{r,  message=F, warning=F}
+# AddLocalLinearTrend
+ss2 <- AddLocalLinearTrend(list(), var_data$n[1:46])
+ss2 <- AddSeasonal(ss2, var_data$n[1:46], nseasons = 3)
+
+model2 <- bsts(var_data$n[1:46]~var_data$slc_pop[1:46] + var_data$slc_un[1:46],
+               state.specification = ss2, 
+               niter = 10000,
+               set.seed(1983))
+```
+
+```{r, echo=F, message=F, warning=F}
+plot(model2, "components")
+```
+
+```{r, echo=F, message=F, warning=F}
+plot(model2, "coef")
+```
+
+```{r, echo=F, message=F, warning=F}
+pred2 <- predict(model2, newdata = as.data.frame(var_data$slc_pop[47:81], var_data$slc_un[47:81]), horizon = 35, burn = 100)
+bsts::plot.bsts.prediction(pred2, plot.original = 40, ylim = c(5000, 50000), main = "Model 2", ylab = "Institutional enrollment")
+```
+
+\newpage
+
+```{r, echo=F, message=F, warning=F, include = F}
+knitr::kable(cbind(var_data$tri[47:81], round(pred2$mean[1:35]), round(pred2$interval[1,1:35]), round(pred2$interval[2,1:35])), 
+             col.names = c("Term", "Mean", "2.5%", "97.5%"), 
+             caption = "Random walk with regression and seasons model")
+```
+
+
+## AR process with regression element: Model 3.
+
+This model replaces the random walk for model 2 with and AR(1) process. This will stabilize the error terms since AR processes are deterministic and have finite errors from period to period. 
+
+```{r, message=F, warning=F}
+# model 3 will use an AR process rather than a 
+ss3 <- AddAr(list(), var_data$n[1:46])
+ss3 <- AddSeasonal(ss3, var_data$n[1:46], nseasons = 3)
+
+model3 <- bsts(var_data$n[1:46]~var_data$slc_pop[1:46] + var_data$slc_un[1:46],
+               state.specification = ss3, 
+               niter = 10000,
+               set.seed(1983))
+```
+
+```{r, echo=F, message=F, warning=F}
+plot(model3, "comp")
+```
+
+```{r, echo=F, message=F, warning=F}
+plot(model3, "coef")
+```
+
+```{r, echo=F, message=F, warning=F}
+
+pred3 <- predict(model3, newdata = as.data.frame(var_data$slc_pop[47:81], var_data$slc_un[47:81]), horizon = 35, burn = 100)
+bsts::plot.bsts.prediction(pred3, plot.original = 40, ylim = c(5000, 40000), main = "Model 3", ylab = "Institutional enrollment")
+``` 
+
+\newpage
+
+```{r, echo=F, message=F, warning=F, include = F}
+knitr::kable(cbind(var_data$tri[47:81], round(pred3$mean[1:35]), round(pred3$interval[1,1:35]), round(pred3$interval[2,1:35])), 
+             col.names = c("Term", "Mean", "2.5%", "97.5%"), 
+             caption = "AR(1) with regression and season model")
+```
+
+## Semi-local Linear trend with regression element: Model 4.
+
+This model replaces the AR(1) with a short memory AR model. 
+
+```{r, message=F, warning=F}
+# model 4 semi-local trend component instead of ar process
+ss4 <- AddSemilocalLinearTrend(list(), var_data$n[1:46])
+ss4 <- AddSeasonal(ss4, var_data$n[1:46], nseasons = 3)
+
+model4 <- bsts(var_data$n[1:46]~var_data$slc_pop[1:46] + var_data$slc_un[1:46],
+               state.specification = ss4, 
+               niter = 10000,
+               set.seed(1983))
+```
+
+```{r, echo=F, message=F, warning=F}
+summary(model4)
+```
+
+
+```{r, echo=F, message=F, warning=F}
+plot(model4, "comp")
+```
+
+```{r, echo=F, message=F, warning=F}
+plot(model4, "coef")
+```
+
+```{r, echo=F, message=F, warning=F}
+pred4 <-  predict(model4, newdata = as.data.frame(var_data$slc_pop[47:81], var_data$slc_un[47:81]), horizon = 35, burn = 100)
+bsts::plot.bsts.prediction(pred4, plot.original = 40, ylim = c(5000, 40000), main = "Model 4", ylab = "Institutional enrollment")
+```
+
+\newpage
+
+```{r, echo=F, message=F, warning=F}
+knitr::kable(cbind(var_data$tri[47:81], round(pred4$mean[1:35]), round(pred4$interval[1,1:35]), round(pred4$interval[2,1:35])), 
+             col.names = c("Term", "Mean", "2.5%", "97.5%"), 
+             caption = "semi-local linear trend with regression and season model")
+```
+
+## comparing all models
+
+```{r, echo=F, message=F, warning=F}
+
+model_plot <- cbind(var_data$tri[47:81], round(pred1$mean[1:35]), round(pred2$mean[1:35]), round(pred3$mean[1:35]), round(pred4$mean[1:35]))
+colnames(model_plot) <- c("tri", "model1", "model2", "model3", "model4")
+model_plot <- as.data.frame(model_plot)
+model_plot <- model_plot %>% gather("model", "est", 2:5)
+
+
+model_plot %>% ggplot() + 
+  geom_point(aes(x = tri, y = as.double(est), col = model)) + 
+  labs(title = "Point estimates of institutional enrollment for all 4 models", x = "Term", y = "Estimated enrollment") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+\newpage
+
+```{r, echo=F, message=F, warning=F}
+model_plot %>% spread("model", "est") %>% 
+  knitr::kable(caption = "Point estimates of institutional enrollment for all 4 models", 
+               col.names = c("Term", "Model 1", "Model 2", "Model 3", "Model 4"))
+```
+
+# For next year. 
+
+Even after several data request the data given to me for this analysis did not match the numbers we report to USHE. However Matt Baxter and Rochelle have created a dashboard that uses the correct numbers. I have added the sql pull that Rochelle wrote for that dashboard. 
+
+## Model used. 
+
+Model 4 was used even though it was in slight disagreement with the other models. Model 4 showed less sensitivity to the economic recovery while not predicting massive growth. Model 4 predicted between 0.5\% and 0.7\% year to year growth given the model's assumption of 4\% unemployment. These growth prediction seem very reasonable and not overly pessimistic. 
+
+\newpage
+
+```{sql, eval=FALSE}
+--Institution-total End of Term Headcount
+select s_year-1 AS FALL
+        ,count(unique S_ID) as headcount
+from wsrpmgr.bus_re_ushe_students
+where s_extract = 'E' --EOT
+and s_term = '3'      --Cycle through terms here (1=summer, 2=fall, 3=spring)
+and s_inst = '5220'
+group by s_year
+order by s_year;
+
+
+--Budget-Related End of Term Headcount
+select s_year-1 AS FALL
+        ,count(unique S_ID) as headcount
+from wsrpmgr.bus_re_ushe_students             A
+LEFT JOIN wsrpmgr.bus_re_ushe_student_courses B
+   ON A.ushe_student_key = B.ushe_student_key
+LEFT JOIN wsrpmgr.bus_re_ushe_courses         C
+   ON B.ushe_Course_key = C.ushe_Course_key
+where s_extract = 'E' --EOT
+and s_term = '2'      --Cycle through terms here (1=summer, 2=fall, 3=spring)
+and s_inst = '5220'
+AND c.c_budget_code like 'B%'  --Budget-related filter
+group by s_year
+order by s_year;
+
+
+--EOT FTE - toggle budget-related filter for institution total V. budget-related. 
+select s_year
+       ,round(SUM(NVL(SC_ATT_CR,0)/150 +
+                  NVL(SC_CONTACT_HRS,0)/450+
+                  NVL(SC_MEMBERSHIP_HRS,0)/450),0) as FTE
+from wsrpmgr.bus_re_ushe_students             A
+LEFT JOIN wsrpmgr.bus_re_ushe_student_courses B
+   ON A.ushe_student_key = B.ushe_student_key
+LEFT JOIN wsrpmgr.bus_re_ushe_courses         C
+   ON B.ushe_Course_key = C.ushe_Course_key
+where s_extract = 'E' --EOT
+and s_term = '2'      --Cycle through terms here (1=summer, 2=fall, 3=spring)
+and s_inst = '5220'
+AND c.c_budget_code like 'B%'  --Budget-related filter
+group by s_year
+order by s_year;
+--These numbers match the Enroll tables, and match that cognos cube, 
+-- but I can't get them to match Debbie's spreadsheet.
+```
+
