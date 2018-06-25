@@ -1,0 +1,136 @@
+---
+title: "Spring 2018 ten year forecast summary"
+author: "Jason Whittle"
+date: "4/25/2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+knitr::opts_chunk$set(warning = F)
+knitr::opts_chunk$set(message = F)
+```
+
+
+```{r, include=FALSE, echo=FALSE, message=F, warning=F}
+library(tidyverse); theme_set(theme_minimal())
+data <- read_csv("20180308.csv")
+
+data$sem <- as.numeric(substr(data$TERM_CODE, 5, 6))
+data$year <- as.numeric(substr(data$TERM_CODE, 1, 4))
+data$zip5 <- substr(data$S_CURR_ZIP, 1, 5)
+data <- data %>% filter(sem != 60)
+
+data$tri <- ifelse(data$sem == 30, paste(data$year, "1", sep = "-"), 
+                       ifelse(data$sem == 40, paste(data$year, "2", sep = "-"),
+                              paste((data$year - 1), "3", sep = "-")))
+```
+
+```{r, echo=FALSE, message=F, warning=F}
+#full forecast ts sequence
+ts_seq <- as.data.frame(seq(2002, 2029, .33333333333333333))
+
+ts_seq$year <- substr(ts_seq$`seq(2002, 2029, 0.333333333333333)`, 1, 4)
+ts_seq$sem <- ifelse(substr(ts_seq$`seq(2002, 2029, 0.333333333333333)`, 6, 6) == "", 1,
+                      ifelse(substr(ts_seq$`seq(2002, 2029, 0.333333333333333)`, 6, 6) == "3", 2, 3))
+ts_seq$tri <- paste(ts_seq$year, ts_seq$sem, sep = "-")
+
+slc_pop_est <- read.csv("slc_pop_est.csv")
+
+slc_pop_est$tri <- paste(slc_pop_est$year, "-2", sep = "")
+
+var_y <- data %>% group_by(tri) %>%
+  tally() 
+
+var_data <- ts_seq %>% left_join(slc_pop_est, by = "tri") %>% left_join(var_y, by = "tri")
+var_data <- var_data[-1,] %>% dplyr::select(tri, n, slc_pop, slc_un)
+library(imputeTS)
+var_data$slc_pop <- na.interpolation(var_data$slc_pop, option = "linear")
+var_data$slc_un <- na.interpolation(var_data$slc_un, option = "linear")
+var_data$slc_pop <- var_data$slc_pop
+var_data$slc_un <- var_data$slc_un
+rm(var_y, ts_seq, slc_pop_est)
+```
+
+# Summary
+
+Enrollment at SLCC is likely to grow very slowly over the next decade given current trends. The modeling done this year has coalesced around slow growth much more than last year's modeling. Population growth in Salt Lake County being relatively slow in the 15-35 year old age group and making an assumption of a good economy limit high enrollment potential. 
+
+- Annual growth rates are predicted between 0.5\% and 0.8\%
+- 2028 fall institutional headcount is predicted to be 33,885.
+
+## Historical enrollment
+
+Figure 1 displays term enrollment at SLCC since 2002. Currently SLCC institutional enrollment is similar to enrollment levels of the early 2000's around 30,000 for a Fall semester. One thing of interest that deserve further investigation is the increasing semester to semester volatility seen in the enrollment data since the 2008 recession (this might be contributing to the softening ability to predict FTE from fall headcount). 
+
+```{r, echo=FALSE}
+var_data[1:45,] %>% ggplot() + 
+  geom_point(aes(x = tri, y = n)) + 
+  ylim(5000, 40000) + 
+  labs(title = "Institution total enrollments", x = "Term", y = "Enrollments") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+# Methodology
+
+A state space time series modeling methodology was used known as BSTS or Bayesian Structural Time Series. BSTS has many feature which are ideal for forecast the long run institutional enrollment of SLCC. For starters SLCC enrollment is very sensitive to spikes in unemployment, many other time series models cannot add additional regression elements into their modeling in a mathematically consistent manner (despite some people believing that they can be). 
+
+Using just a normal regression model leads to massively inflated test statistics due to the fact that enrollment data are highly serially correlated with each other.\footnote{My height last year is a great predictor of my height next year for example and thus a regression of my height last year on my height this year would have an outstanding r-squared (.98-.99) even though I don't really have a model of height and what causes height.} State space models on the other hand allow regression modeling to be used while simultaneously modeling with another methodology designed to model serially correlated data (such as MA or AR models). This is due to the fact that BSTS estimates probability distributions using MCMC, this allows elements (like the results of an isolated regression and an isolated time series model) to be added to one each other.\footnote{Additive property of probability distribution.} The ability to add time series elements in this manner allows the model to control for things like Salt Lake Counties population changes and make an explicit assumption about economic growth all while not sacrificing the ease of use of a more traditional time series methodology like ETS or ARIMA. 
+
+## Elements of the Spring 2018 enrollment model
+
+There are three components to this years SLCC enrollment model. The first is a seasonal adjustment model. The seasonal adjustment equalizes out the fluctuation between semesters, while this has been growing in recent years the BSTS did a good job of managing this change much better than the decompose function in base R that has been used in the past and for the one year budget forecast numbers. By 'de-seasoning' the data the data set is expanded from around 15 Fall semester data points (as was used last year) to 46 semester data points. The tripling of data points allows the time series component to estimated the trend (isolated from the regression elements) of enrollment better. 
+
+The second component is a semi-local linear trend model. This model is a random walk model but it uses an AR(1) process to determine the slope change from year to year for the trend. Both a random walk and ARIMA methods were tried individually but the combination is known to be more reliable for long-run forecasting. The final component is a linear regression component that regressed Salt Lake County's 15-35 year old population and Salt Lake County's unemployment rate on enrollment.\footnote{The population data comes from EMSI's estimates derived from the census and the unemployment data comes from the St. Louis Federal Reserve FRED database.} 
+
+The models seems to be driven by a declining trend modeled primarily with the second component (semi-local linear level model) and the regression (meaning the year to year changes in population and employment) having a rather limited impact over the last few years. *I believe this is why the modeling done this year predicts less enrollment than last year.* There have been 3-4 years now with low but stable unemployment but SLCC continues to decline. The pull from the economy from the models perspective hasn't really changed over the last few years but SLCC is still struggling to increase enrollment. The model is looking at this and determining that the economy mattered a lot in 2008-2013 but not so much in recent years. In a sense this is exactly the conditions a regression model is trying to replicate. A regression asks mathematically "what would happen if we didn't change the population growth rate or the unemployment rate?" In SLCC's case we see slow growth or decline in enrollment. 
+
+Predicting forward BSTS will use a constant 4\% unemployment rate (the average for the entire data set) and the projected Salt Lake County 15-35 year old population (fairly steady). These are conditions fairly similar to the last few year and thus the model predicts slow growth (just like the last few years). A 4\% unemployment rate is making the assumption of a fairly good economy over the next ten years. Currently Salt Lake County has an unemployment rate around 2.8-3\% so the assumption is slightly higher but still signals a strong economy over the next decade.
+
+```{r, message=F, warning=F, include=FALSE}
+library(bsts)
+# model 4 semi-local trend component instead of ar process
+ss4 <- AddSemilocalLinearTrend(list(), var_data$n[1:46])
+ss4 <- AddSeasonal(ss4, var_data$n[1:46], nseasons = 3)
+
+model4 <- bsts(var_data$n[1:46]~var_data$slc_pop[1:46] + var_data$slc_un[1:46],
+               state.specification = ss4, 
+               niter = 10000,
+               set.seed(1983))
+```
+
+```{r, echo=F, message=F, warning=F, include=F}
+summary(model4)
+```
+
+In Figure 2 below the three components of the model are shown. For the trend element we can see that some of the enrollment impact of the 2008 recession was modeles with this section of the BSTS which is likely not perfectly accurate, the bump in enrollment should probably entirely been assigned to the regression component. However there may have been a structural change in enrollment following the 2008 economic shock.\footnote{Enrollments at SLCC could be of a different nature after the shock than prior to it. Utahn's way of thinking about higher ed and employment may have changed significantly following the 2008 recession.} Towards the end of the time series both the trend and regression element show stable and consistent behavior which will play a large role in the BSTS prediction coming from this model since more recent behavior in AR models is waited more heavily. 
+
+```{r, echo=F, message=F, warning=F}
+plot(model4, "comp", caption= "blah")
+```
+
+
+Figure 3 below shows the prediction of the BSTS model in blue, the black line is the actual historical enrollments and the green dotted lines are the 95\% confidence intervals. The green lines should be interpreted as catastrophic event hitting the economy driving people back to college to seek more training. This catastrophic event would be something like another 2008 style collapse, potentially without as strong of a recovery. The low end prediction seem mostly useless for enrollment prediction purposes. It is likely SLCC is on the low end of growth given the current strong and consistent pull from the economy (unemployment rates can't go negative... typically). Without population collapse or something like a World War 2 economy the low estimates are not relevant to SLCC.
+
+```{r, echo=F, message=F, warning=F}
+var_data$slc_un[47:81] <- 4 # assume 4 % unemployment rate
+pred4 <-  predict(model4, newdata = as.data.frame(var_data$slc_pop[47:81], var_data$slc_un[47:81]), horizon = 35, burn = 100)
+bsts::plot.bsts.prediction(pred4, plot.original = 40, ylim = c(5000, 40000), main = "Model forecast", ylab = "Institutional enrollment")
+```
+
+# Enrollment scenarios and FTE
+
+The final table provides three different scenarios based on the BSTS output. The first is an average (4\%) unemployment projection (between 0.5\% and 0.8\% annual growth). The high unemployment scenario is for a constant state of higher unemployment several points higher than the average of 4\% (or for faster than projected population growth). The economic collapse was predicted by the 95\% error band on the model, it seems unlikely but its what the model predicts for the very high end. 
+
+The FTE values are calculated using a multiplier. The average FTE/Fall headcount ratio was calculated for the entire data set and then used as a multiplier for the projected headcount in the forecast. This methodology might need to be changed going forward since it was least accurate part of last years forecast.\footnote{Annualized FTE last year missed by 3\% while Fall headcount missed by only 0.2\% (58 students).}
+
+```{r}
+report_tbl <- read.csv("final_report_data.csv")
+
+report_tbl %>% knitr::kable(col.names = c("Year", "Fall HC (avg. unem.)", "Fall HC (high unemp.)", "Fall HC (collapse)", "Fall FTE", "Annualized FTE"))
+
+
+```
+
+
+
