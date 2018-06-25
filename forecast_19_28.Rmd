@@ -7,6 +7,7 @@ output: html_document
 
 ```{sql, eval= FALSE, include = FALSE, echo=FALSE}
 <!-- Rochelle updated SQL to reflect the new data warehouse tables -->
+<!-- updated again 3/2/2017 to reflect institution totals as per Joe Curtain's 2017 request -->
 select distinct a.pidm
         ,b.term_code
         ,a.s_gender
@@ -19,8 +20,7 @@ left join wsrpmgr.bus_re_ushe_student_courses B
    on a.ushe_student_key = b.ushe_student_key
 left join wsrpmgr.bus_re_ushe_courses        C
    on b.ushe_course_key = c.ushe_course_key
-where c.c_budget_code like 'B%'               --use only budget-related enrollments
-and a.term_code between '200240' and '201740' --restrict our analysis to these terms
+where a.term_code between '200240' and '201740' --restrict our analysis to these terms
 and c_credit_ind = 'C'                        --only include for-credit courses (and enrollments)
 and s_inst = '5220'                           --SLCC only (not SAT)
 and s_extract = 'E'                           --End of Term extracts
@@ -56,44 +56,13 @@ The annual enrollment ten year forecast update. Goals for this year:
 - Use broom to stream line data manipulaiton.
 - Utilize more than the MA model developed last year. 
 
-```{r, echo=FALSE}
-# whole section is obsolete
-# third week numbers
-# data_3 <- read.table("TASK00180103rd.txt", sep = "|", header = T)
-# data_3$sem <- as.numeric(substr(data_3$TERM, 5, 6))
-# data_3$year <- as.numeric(substr(data_3$TERM, 1, 4))
-# data_3$tri <- ifelse(data_3$sem == 30, paste(data_3$year, "1", sep = "-"), 
-#                        ifelse(data_3$sem == 40, paste(data_3$year, "2", sep = "-"),
-#                               paste((data_3$year - 1), "3", sep = "-")))
-# 
-# 
-# data_3$eth <- ifelse(data_3$S_ETHNICITY == "N", "oth", 
-#                        ifelse(data_3$S_ETHNICITY == "M", "oth",
-#                               ifelse(data_3$S_ETHNICITY == "", "oth",
-#                                      ifelse(data_3$S_ETHNICITY == "I", "oth",
-#                                             ifelse(data_3$S_ETHNICITY == "U", "oth", as.character(data_3$S_ETHNICITY))))))
-# 
-# data_3$gen <- ifelse(data_3$S_GENDER == "-", "oth", 
-#                      ifelse(data_3$S_GENDER == "0", "oth", 
-#                             ifelse(data_3$S_GENDER == "N", "oth",
-#                                    ifelse(data_3$S_GENDER == "U", "oth",
-#                                           ifelse(data_3$S_GENDER == "", "oth",
-#                                           as.character(data_3$S_GENDER))))))
-# data_3$zip5 <- substr(data_3$S_CURR_ZIP, 1,5)
-# 
-# # shows white decline and HLL rising but still overall loss
-# data_3 %>% group_by(tri, eth, gen) %>% tally() %>% ggplot() + geom_point(aes(x = tri, y = n, col = gen)) + facet_wrap(~eth)
-# 
-# data_3 %>% group_by(year, zip5) %>% tally() %>% filter(n > 50) %>% ggplot() + geom_line(aes(x = year, y =  n, col = zip5), stat = "identity")
-
-```
-
 ```{r, echo=FALSE, message=FALSE, cache=TRUE}
-data <- read_csv("export_20180125.csv")
+data <- read_csv("20180308.csv")
 
-data$sem <- as.numeric(substr(data$TERM, 5, 6))
-data$year <- as.numeric(substr(data$TERM, 1, 4))
+data$sem <- as.numeric(substr(data$TERM_CODE, 5, 6))
+data$year <- as.numeric(substr(data$TERM_CODE, 1, 4))
 data$zip5 <- substr(data$S_CURR_ZIP, 1, 5)
+data <- data %>% filter(sem != 60)
 
 data$tri <- ifelse(data$sem == 30, paste(data$year, "1", sep = "-"), 
                        ifelse(data$sem == 40, paste(data$year, "2", sep = "-"),
@@ -133,8 +102,6 @@ data$eth[data$S_ETHNICITY == "N" |
            data$S_ETHNICITY == "B" | 
            is.na(data$S_ETHNICITY) == T] <- "other"
 
-
-
 # gender groupings
 data$gen <- ifelse(data$S_GENDER == "-", "oth", 
                      ifelse(data$S_GENDER == "0", "oth", 
@@ -161,22 +128,291 @@ data_tally <- data %>% filter(sem != 60) %>%
 
 data_tally$id <- paste(data_tally$eth, data_tally$age_bins, data_tally$gen, sep = "")
 
-data_tally_wide <- data_tally %>%  ungroup %>% select(tri, id, n) %>% spread(id, n)
+data_tally_wide <- data_tally %>%  ungroup %>% dplyr::select(tri, id, n) %>% spread(id, n)
 
 data_tally_wide[is.na(data_tally_wide) == T] <- 0
 
 data_tally_ts <- ts(data_tally_wide[,-1], frequency = 3)
 ```
 
+
+```{r}
+# tri 2 = fall = .00, tri 3 = spring = .33, tri 1 = summer = .66.
+
+
+
+# forcast on eth only
+by_eth <- data %>% filter(tri != "2001-3") %>%
+  group_by(S_ETHNICITY, tri) %>%
+  tally() %>%
+  spread(S_ETHNICITY, n)
+
+by_eth[is.na(by_eth) == T] <- 0
+
+by_eth <- by_eth  %>%
+  mutate(oth = `M` + `U` + `<NA>`)
+
+
+by_eth <- by_eth[, !(colnames(by_eth) %in% c("M", "U", "<NA>"))]
+
+# by_eth_ts <- ts(by_eth[,-1], frequency = 3)
+# 
+# library(forecast)
+# test <- lapply(by_eth_ts, decompose)
+# 
+# plot(test$A)
+# 
+# plot(forecast(ets(by_eth_ts[,1]), 30))
+# plot(forecast(ets(by_eth_ts[,2]), 30))
+# plot(forecast(ets(by_eth_ts[,3]), 30))
+# plot(forecast(ets(by_eth_ts[,4]), 30))
+# plot(forecast(ets(by_eth_ts[,5]), 30))
+# plot(forecast(ets(by_eth_ts[,6]), 30))
+# plot(forecast(ets(by_eth_ts[,7]), 30))
+# plot(forecast(ets(by_eth_ts[,8]), 30))
+
+
+```
+
+```{r,echo=FALSE}
+#importing emsi demos
+demos <- read_csv("slc_demos.csv") %>% gather(year, n, 5:20)
+
+demos %>% group_by(emsi_county, emsi_eth, year) %>% summarise(n_sum = sum(n)) %>% 
+  ggplot() + 
+  geom_line(aes(x=as.numeric(year), y = n_sum), stat = "identity") + 
+  facet_wrap(~emsi_eth, scale = "free_y")
+
+demos$tri <- paste(demos$year, "-3", sep = "")
+
+#fall only numbers
+by_eth_demos_raw <- demos %>% group_by(emsi_county, emsi_eth, tri) %>%
+  summarise(n_sum = sum(n)) %>%
+  spread(emsi_eth, n_sum)
+
+by_eth_demos_raw <- by_eth_demos_raw[, !(colnames(by_eth_demos_raw) %in% c("emsi_county"))]
+by_eth_demos_raw_ts <- ts(by_eth_demos_raw[,-1], frequency = 1)
+
+#all semesters
+by_eth_demos <- demos %>% group_by(emsi_county, emsi_eth, tri) %>% 
+  summarise(n_sum = sum(n)) %>%
+  spread(emsi_eth, n_sum)
+by_eth_demos <- by_eth_demos[,!(colnames(by_eth_demos) %in% c("emsi_county"))]
+# 
+# # expanding demos form annual to trimesters
+# temp <- as.data.frame(by_eth$tri)
+# colnames(temp) <- c("tri")
+# by_eth_demos <- temp %>% left_join(by_eth_demos, by="tri")
+# 
+# by_eth_demos <- by_eth_demos[,!(colnames(by_eth_demos) %in% c("emsi_county"))]
+# by_eth_demos_ts <- ts(by_eth_demos[,-1], frequency = 1)
+
+# # linear interpolaiton of the series. doesn't handle endpoints well. Might need to chop off a semester at begining. 
+# library(imputeTS)
+# by_eth_demos_ts <- na.interpolation(by_eth_demos_ts, option = "linear")
+# plot(by_eth_demos_ts)
+# 
+# # plotting shares by ethnicity for trend/interpolated_demos
+# plot((test$A$trend/by_eth_demos_ts[,1])*100)
+# plot((test$B$trend/by_eth_demos_ts[,2])*100)
+# plot((test$H$trend/by_eth_demos_ts[,3])*100)
+# plot((test$I$trend/by_eth_demos_ts[,4])*100)
+# plot((test$P$trend/by_eth_demos_ts[,6])*100)
+# plot((test$W$trend/by_eth_demos_ts[,7])*100)
+# 
+# # ploting shares by ethnicity for raw_fall/raw_demos
+# by_eth_fall <- data %>% filter(tri != "2001-3") %>%
+#   filter(sem == 40) %>%
+#   group_by(S_ETHNICITY, tri) %>%
+#   tally() %>%
+#   spread(S_ETHNICITY, n)
+# 
+# by_eth_fall[is.na(by_eth_fall) == T] <- 0
+# 
+# by_eth_fall <- by_eth_fall  %>%
+#   mutate(oth = `M` + `U` + `<NA>`)
+# 
+# 
+# by_eth_fall <- by_eth_fall[, !(colnames(by_eth_fall) %in% c("M", "U", "<NA>"))]
+# by_eth_fall_ts <- ts(by_eth_fall[,-1], frequency = 1)
+# 
+# plot((by_eth_fall_ts[,1]/by_eth_demos_raw_ts[,1])*100)
+# plot((by_eth_fall_ts[,2]/by_eth_demos_raw_ts[,2])*100)
+# plot((by_eth_fall_ts[,3]/by_eth_demos_raw_ts[,3])*100)
+# plot((by_eth_fall_ts[,4]/by_eth_demos_raw_ts[,4])*100)
+# plot((by_eth_fall_ts[,6]/by_eth_demos_raw_ts[,6])*100)
+# plot((by_eth_fall_ts[,7]/by_eth_demos_raw_ts[,7])*100)
+```
+
+```{r}
+#full forecast ts sequence
+ts_seq <- as.data.frame(seq(2002, 2029, .33333333333333333))
+
+ts_seq$year <- substr(ts_seq$`seq(2002, 2029, 0.333333333333333)`, 1, 4)
+ts_seq$sem <- ifelse(substr(ts_seq$`seq(2002, 2029, 0.333333333333333)`, 6, 6) == "", 1,
+                      ifelse(substr(ts_seq$`seq(2002, 2029, 0.333333333333333)`, 6, 6) == "3", 2, 3))
+ts_seq$tri <- paste(ts_seq$year, ts_seq$sem, sep = "-")
+
+#trimester seq
+
+# importing emsi demos forecasts
+demos_for <- read_csv("demos_forecast.csv") %>% gather(year, n, 3:14)
+
+
+demos_for <- demos_for %>% group_by(emsi_eth, year) %>% summarise(n_sum = sum(n)) %>% filter(year != "2017")
+
+demos_for %>% ggplot() + 
+  geom_line(aes(x=as.numeric(year), y=n_sum)) + 
+  facet_wrap(~emsi_eth, scales="free_y")
+
+demos_for_wide <- demos_for %>% spread(emsi_eth, n_sum)
+demos_for_wide$tri <- paste(demos_for_wide$year, "3", sep = "-")
+demos_for_wide <- demos_for_wide[,!(colnames(demos_for_wide) %in% c("year"))]
+
+# merging demo timeseires
+
+demos_ts_raw <- rbind(by_eth_demos, demos_for_wide)
+
+demo_ts_seq<- as.data.frame(ts_seq$tri)
+demo_ts_seq$tri <- demo_ts_seq$`ts_seq$tri`
+
+demo_ts <- demo_ts_seq %>% left_join(demos_ts_raw, by = "tri") 
+
+# interpolating missing values
+library(imputeTS)
+demo_ts <- na.interpolation(demo_ts, option = "linear")
+demo_ts <- demo_ts[, !colnames(demo_ts) %in% c("ts_seq$tri")]
+# demo_ts <- ts(demo_ts[,-1], frequency = 3)
+
+# joining SLCC enrollment data to demo data
+demo_enroll <- demo_ts %>% left_join(by_eth, by = "tri")
+demo_enroll <- demo_enroll %>% filter(tri != "2002-1")
+demo_enroll_ts <- ts(demo_enroll[,-1], frequency = 3)
+
+```
+
 ```{r, echo=FALSE, cache=TRUE, message=FALSE}
 ushe_hs_data <- read_csv("USHE_HS_enroll.csv")
 
 ushe_hs_data %>% gather("ethnicity", "ethn", 6:13) %>% 
-  group_by(s_inst, s_year, s_term, s_gender, s_county_origin, ethn) %>% filter(is.na(ethn) == F) %>%
+  group_by(s_inst, s_year, s_term, s_gender, s_county_origin, ethn) %>% 
+  filter(is.na(ethn) == F) %>%
   tally() %>% 
-  summarise(white_slcc_share = (sum(n[s_inst == 5220 & ethn == "W"]/sum(n[ethn == "W"])))) %>% View()
+  group_by(s_inst, s_year, s_term, s_gender, s_county_origin, ethn) %>%
+  summarise(tot = sum(n)) %>% 
+  group_by(s_inst, s_year, s_term, s_gender, s_county_origin, ethn) %>%
+  summarise(white_slcc_share = (sum(n[s_inst == 5220 & ethn == "W"])/tot[ethn == "W"])) %>% View()
 ```
 
+## Arima with regressors
+demo_ts will by the first regressor tied to the enrollment forecast. I will consider adding employment at a later time. 
+
+```{r, echo=FALSE}
+# using the combined time series demo_enroll_ts
+
+fit <- Arima(demo_enroll_ts[,8], xreg = demo_enroll_ts[,1], order = c(1,1,0), seasonal = list(order = c(0,1,1), period = 3))
+acf(diff(demo_enroll_ts[1:46,8], lag = 3))
+decom_eth <- lapply(demo_enroll_ts, decompose)
+
+# trends
+A_trend <- decom_eth$A.y$trend[2:45]
+B_trend <- decom_eth$B.y$trend[2:45]
+H_trend <- decom_eth$H$trend[2:45]
+I_trend <- decom_eth$I.y$trend[2:45]
+P_trend <- decom_eth$P.y$trend[2:45]
+W_trend <- decom_eth$W.y$trend[2:45]
+
+
+# ACF
+acf(A_trend)
+acf(B_trend)
+acf(H_trend)
+acf(I_trend)
+acf(P_trend)
+acf(W_trend)
+# All ACF's show significant signs of a trend
+
+acf(diff(A_trend, differences = 1))# seems good
+acf(diff(B_trend, differences = 2))# needs second difference
+acf(diff(H_trend, differences = 1))# needs second difference/ maybe
+acf(diff(I_trend, differences = 1))
+acf(diff(P_trend, differences = 1))
+acf(diff(W_trend, differences = 1))
+
+# plots
+# A 1 difference
+plot(A_trend, type="l")
+plot(log(A_trend), type="l")
+plot(diff(A_trend), type="l")
+plot(diff(log(A_trend)), type="l")
+
+# B 2 differenes
+plot(B_trend, type="l")
+plot(log(B_trend), type="l")
+plot(diff(log(B_trend)), type="l")
+plot(diff(log(B_trend), differences = 2), type="l")
+
+# H 1 differences
+plot(H_trend, type="l")
+plot(log(H_trend), type="l")
+plot(diff(log(H_trend)), type="l")
+
+# I 1 differenes
+plot(I_trend, , type="l")
+plot(log(I_trend), type="l")
+plot(diff(log(I_trend)), type="l")
+
+# P 1 difference
+plot(P_trend, type="l")
+plot(log(P_trend),  type="l")
+plot(diff(log(P_trend)), type="l")
+
+# W 1 differene
+plot(W_trend, type="l")
+plot(log(W_trend), type="l")
+plot(diff(log(W_trend)), type="l")
+```
+
+I think I should first address the seasonality in the time series and then move on to the trend. I might have done this backwards. 
+
+```{r, echo=FALSE}
+library(tseries)
+# addressing seasonality at the same time I have differencing
+# A
+acf(diff(demo_enroll_ts[1:46,8], lag = 3))
+plot(diff(demo_enroll_ts[1:46,8], lag = 3), type = "l")
+adf.test(diff(log(demo_enroll_ts[1:46,8]), differences = 2, lag = 3), alternative = "stationary")
+
+# B
+acf(diff(demo_enroll_ts[1:46,9], differences = 2, lag = 3))
+plot(diff(demo_enroll_ts[1:46,9], differences = 2, lag = 3), type = "l")
+adf.test(diff(log(demo_enroll_ts[1:46,9]), differences = 2, lag = 3), alternative = "stationary")
+
+# H
+acf(diff(demo_enroll_ts[1:46,10], lag = 3))
+
+
+adf.test(diff(log(demo_enroll_ts[1:46,10]), differences = 3, lag = 3), alternative = "stationary")
+
+# I
+acf(diff(demo_enroll_ts[1:46,11], lag = 3))
+plot(diff(log(demo_enroll_ts[1:46,11]), lag = 3), type = "l")
+adf.test(diff(log(demo_enroll_ts[1:46,11]), differences = 6, lag = 3), alternative = "stationary")
+
+# P
+acf(diff(demo_enroll_ts[1:46,13], lag = 3))
+plot(diff(log(demo_enroll_ts[1:46,13]), lag = 3), type = "l")
+adf.test(diff(log(demo_enroll_ts[1:46,13]), differences = 7, lag = 3), alternative = "stationary")
+
+# W
+acf(diff(demo_enroll_ts[1:46,14], differences = 2, lag = 3))
+plot(diff(log(demo_enroll_ts[1:46,14]), differences = 2, lag = 3), type = "l")
+adf.test(diff(log(demo_enroll_ts[1:46,14]), differences = 2, lag = 3), alternative = "stationary")
+
+
+adf.test(demo_enroll_ts[1:46,14], alternative = "stationary")
+adf.test(diff(log(demo_enroll_ts[1:46,14]), differences = 2, lag = 3), alternative = "statio")
+```
 
 ## 18-24 year old variability
 
@@ -205,6 +441,14 @@ data %>% filter(age_bins == 18 | age_bins == 19 |
                      name = "", 
                      labels = c("Female", "Male"))
 ```
+
+```{r, echo=FALSE}
+data %>% filter(year > 2001) %>% group_by(tri) %>% tally() %>% View()
+
+  ggplot() + 
+  geom_line(aes(x=year, y=n))
+```
+
 
 ## By age breakdowns for White, Hispanic/Latino/Latina and other ethnic groups for SLCC Fall enrollments
 
@@ -447,5 +691,172 @@ write_csv(as.data.frame(forecast_tbl),"forecast_ad_hoc.csv" )
 
 ```{r, eval=FALSE, include=FALSE, echo=FALSE}
 knitr::kable(forecast_tbl, col.names = c("Term", "Forecast", "FTE", "Lo 80", "Hi80"))
+```
+
+# VAR
+
+```{r, echo=FALSE}
+#full forecast ts sequence
+ts_seq <- as.data.frame(seq(2002, 2029, .33333333333333333))
+
+ts_seq$year <- substr(ts_seq$`seq(2002, 2029, 0.333333333333333)`, 1, 4)
+ts_seq$sem <- ifelse(substr(ts_seq$`seq(2002, 2029, 0.333333333333333)`, 6, 6) == "", 1,
+                      ifelse(substr(ts_seq$`seq(2002, 2029, 0.333333333333333)`, 6, 6) == "3", 2, 3))
+ts_seq$tri <- paste(ts_seq$year, ts_seq$sem, sep = "-")
+
+slc_pop_est <- read.csv("slc_pop_est.csv")
+
+slc_pop_est$tri <- paste(slc_pop_est$year, "-2", sep = "")
+
+var_y <- data %>% group_by(tri) %>%
+  tally() 
+
+var_data <- ts_seq %>% left_join(slc_pop_est, by = "tri") %>% left_join(var_y, by = "tri")
+var_data <- var_data[-1,] %>% dplyr::select(tri, n, slc_pop, slc_un)
+library(imputeTS)
+var_data$slc_pop <- na.interpolation(var_data$slc_pop, option = "linear")
+var_data$slc_un <- na.interpolation(var_data$slc_un, option = "linear")
+
+var_data_ts <- ts(var_data[,-1], frequency = 3)
+en_trend <- decompose(var_data_ts[,1])
+var_data_ts <- cbind(var_data_ts, en_trend$trend)
+
+var_data_mat <- as.data.frame(var_data_ts)
+colnames(var_data_mat) <- c("n", "slc_pop", "slc_un", "slc_trend")
+var_data_mat <- as.data.frame(cbind(var_data_mat$slc_trend, var_data_mat$slc_pop, var_data_mat$slc_un))
+```
+
+```{r, echo=FALSE}
+library(bsts)
+library(dlm)
+
+AddSeasonal(y= var_data_ts[,1], nseasons = 3, season.duration = 1)
+
+```
+
+## testing for random walk process
+
+We know that enrollment is very seasonal so all the test will be preformed on the decompose trend.
+
+The plot below doesn't have a clear trend.
+
+```{r, echo=F}
+plot(var_data_ts[2:44,4])
+```
+
+the plot of the difference looks like if fluctuates around a number. This histogram has a on large positive outlier but other than that is looks to be fairly evenly distributed around 0. 
+
+```{r}
+plot(diff(var_data_ts[2:44,4]))
+hist(diff(var_data_ts[2:44, 4]))
+```
+
+The standard deviation of the original trend series is larger than the standard deviation of the differenced trend.
+
+```{r}
+sd(var_data_ts[2:44, 4]) > sd(diff(var_data_ts[2:44, 4]))
+```
+
+```{r}
+mean(diff(var_data_ts[2:44, 4]))
+```
+
+```{r}
+pairs(var_data_ts[2:44,-1])
+```
+
+```{r, eval =F, echo=F}
+test_data <- as.data.frame(var_data_ts)
+
+# row 4:45 are now the subset
+test_data$lag1 <- lag(test_data$var_data_ts.n, k = 1)
+test_data$lag2 <- lag(test_data$lag1, k =1)
+test_data$lag3 <- lag(test_data$lag2, k= 1)
+
+test_data$sem <- c(2, 3, 1)
+test_data$fall <- ifelse(test_data$sem == 2, 1, 0)
+test_data$spring <- ifelse(test_data$sem == 3, 1, 0)
+
+# shoudl log everything so that the scales are closer
+# smaller data set
+test_lm <- test_data[4:45, -8]
+test_lm <- test_lm[, -4]
+plot(test_lm$var_data_ts.slc_pop, test_lm$var_data_ts.n)
+
+summary(lm(log(test_lm$var_data_ts.n)~log(test_lm$var_data_ts.slc_pop) + log(test_lm$var_data_ts.slc_un) + test_lm$lag1 + test_lm$fall + test_lm$spring))
+```
+
+## local linear trend only model
+
+```{r}
+# AddLocalLinearTrend
+ss1 <- AddLocalLinearTrend(list(), var_data$n[1:46])
+# seasonal
+ss1 <- AddSeasonal(ss1, var_data$n[1:46], nseasons = 3)
+# just seasonal and random walk
+model1 <- bsts(var_data$n[1:46],
+               state.specification = ss1, 
+               niter = 10000)
+
+plot(model1)
+plot(model1, "components")
+
+pred1 <- predict(model1, horizon = 30, burn = 100)
+bsts::plot.bsts.prediction(pred1, plot.original = 40, ylim = c(0, 50000))
+```
+ 
+
+## local linear trend with regression element
+
+```{r}
+# AddLocalLinearTrend
+ss2 <- AddLocalLinearTrend(list(), var_data$n[1:46])
+ss2 <- AddSeasonal(ss2, var_data$n[1:46], nseasons = 3)
+
+model2 <- bsts(var_data$n[1:46]~var_data$slc_pop[1:46] + var_data$slc_un[1:46],
+               state.specification = ss2, 
+               niter = 100000)
+
+plot(model2, "components")
+plot(model2, "coef")
+
+pred2 <- predict(model2, newdata = as.data.frame(var_data$slc_pop[47:81], var_data$slc_un[47:81]), horizon = 12, burn = 100)
+bsts::plot.bsts.prediction(pred2, plot.original = 40, ylim = c(0, 50000))
+```
+
+## AR process with regression element
+
+```{r}
+# model 3 will use an AR process rather than a 
+ss3 <- AddAr(list(), var_data$n[1:46])
+ss3 <- AddSeasonal(ss3, var_data$n[1:46], nseasons = 3)
+
+model3 <- bsts(var_data$n[1:46]~var_data$slc_pop[1:46] + var_data$slc_un[1:46],
+               state.specification = ss3, 
+               niter = 100000)
+
+plot(model3, "comp")
+plot(model3, "coef")
+
+pred3 <- predict(model3, newdata = as.data.frame(var_data$slc_pop[47:81], var_data$slc_un[47:81]), horizon = 12, burn = 100)
+bsts::plot.bsts.prediction(pred3, plot.original = 40, ylim = c(5000, 40000))
+``` 
+
+## Semi-local Linear trend with regression element
+
+```{r}
+# model 4 semi-local trend component instead of ar process
+ss4 <- AddSemilocalLinearTrend(list(), var_data$n[1:46])
+ss4 <- AddSeasonal(ss4, var_data$n[1:46], nseasons = 3)
+
+model4 <- bsts(var_data$n[1:46]~var_data$slc_pop[1:46] + var_data$slc_un[1:46],
+               state.specification = ss4, 
+               niter = 10000)
+
+plot(model4, "comp")
+plot(model4, "coef")
+
+pred4 <-  predict(model4, newdata = as.data.frame(var_data$slc_pop[47:81], var_data$slc_un[47:81]), horizon = 12, burn = 100)
+bsts::plot.bsts.prediction(pred4, plot.original = 40, ylim = c(5000, 40000))
 ```
 
